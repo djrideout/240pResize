@@ -104,7 +104,7 @@ end
 
 -- Called when rendering the source with the graphics subsystem
 source_info.video_render = function(data)
-    local parent = obs.obs_filter_get_parent(data.source)
+    local parent = obs.obs_filter_get_target(data.source)
     data.source_width = obs.obs_source_get_base_width(parent)
     data.source_height = obs.obs_source_get_base_height(parent)
 

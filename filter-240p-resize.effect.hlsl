@@ -119,6 +119,10 @@ float4 pixel_shader_240p_resize(pixel_data pixel) : TARGET
     static float scale_x = target_width / float(source_width);
     static float scale_y = target_height / float(source_height);
 
+    // Hacky way to determine which dimension we're scaling in, make this nicer later
+    // Scale horizontally first, then vertically
+    bool scale_vertical = target_width == source_width;
+
     // Get the output pixel positions from the output UV positions
     float2 pixel_uv = float2(pixel.uv.x * target_width, pixel.uv.y * target_height);
 
@@ -126,47 +130,63 @@ float4 pixel_shader_240p_resize(pixel_data pixel) : TARGET
     float mapped_x = pixel_uv.x / scale_x;
     float mapped_y = pixel_uv.y / scale_y;
 
-    int4 coeffs_x = get_coeffs(mapped_x);
-    int4 coeffs_y = get_coeffs(mapped_y);
+    // Get the mapped pixel to interpolate
+    float to_scale = mapped_x;
+    if (scale_vertical) {
+        to_scale = mapped_y;
+    }
 
-    int taps_x[4] = {
-        mapped_x - 1.5,
-        mapped_x - 0.5,
-        mapped_x + 0.5,
-        mapped_x + 1.5
+    // Get scaling coefficients for this pixel
+    int4 coeffs = get_coeffs(to_scale);
+
+    // 4 taps per phase, 64 phases
+    int taps[4] = {
+        to_scale - 1.5,
+        to_scale - 0.5,
+        to_scale + 0.5,
+        to_scale + 1.5
     };
 
-    int taps_y[4] = {
-        mapped_y - 1.5,
-        mapped_y - 0.5,
-        mapped_y + 0.5,
-        mapped_y + 1.5
-    };
+    // Determine which dimension to clamp with based on scaling direction
+    int source_dimension = source_width;
+    if (scale_vertical) {
+        source_dimension = source_height;
+    }
 
-    if (taps_x[0] < 0) taps_x[0] = 0;
-    if (taps_x[1] < 0) taps_x[1] = 0;
-    if (taps_x[2] >= source_width) taps_x[2] = source_width - 1;
-    if (taps_x[3] >= source_width) taps_x[3] = source_width - 1;
+    // Clamp the tap values to be within the source dimensions
+    if (taps[0] < 0) taps[0] = 0;
+    if (taps[1] < 0) taps[1] = 0;
+    if (taps[2] >= source_dimension) taps[2] = source_dimension - 1;
+    if (taps[3] >= source_dimension) taps[3] = source_dimension - 1;
 
-    if (taps_y[0] < 0) taps_y[0] = 0;
-    if (taps_y[1] < 0) taps_y[1] = 0;
-    if (taps_y[2] >= source_height) taps_y[2] = source_height - 1;
-    if (taps_y[3] >= source_height) taps_y[3] = source_height - 1;
-
+    // Grab the pixel for each tap from the source image
     float4 pixels[4] = {
-        image.Load(int3(taps_x[0], taps_y[0], 0)),
-        image.Load(int3(taps_x[1], taps_y[1], 0)),
-        image.Load(int3(taps_x[2], taps_y[2], 0)),
-        image.Load(int3(taps_x[3], taps_y[3], 0))
+        image.Load(int3(taps[0], mapped_y, 0)),
+        image.Load(int3(taps[1], mapped_y, 0)),
+        image.Load(int3(taps[2], mapped_y, 0)),
+        image.Load(int3(taps[3], mapped_y, 0))
     };
+    if (scale_vertical) {
+        pixels[0] = image.Load(int3(mapped_x, taps[0], 0));
+        pixels[1] = image.Load(int3(mapped_x, taps[1], 0));
+        pixels[2] = image.Load(int3(mapped_x, taps[2], 0));
+        pixels[3] = image.Load(int3(mapped_x, taps[3], 0));
+    }
 
-    float r = pixels[0].r * (coeffs_x.x / float(128)) + pixels[1].r * (coeffs_x.y / float(128)) + pixels[2].r * (coeffs_x.z / float(128)) + pixels[3].r * (coeffs_x.w / float(128))
-            + pixels[0].r * (coeffs_y.x / float(128)) + pixels[1].r * (coeffs_y.y / float(128)) + pixels[2].r * (coeffs_y.z / float(128)) + pixels[3].r * (coeffs_y.w / float(128));
-    float g = pixels[0].g * (coeffs_x.x / float(128)) + pixels[1].g * (coeffs_x.y / float(128)) + pixels[2].g * (coeffs_x.z / float(128)) + pixels[3].g * (coeffs_x.w / float(128))
-            + pixels[0].g * (coeffs_y.x / float(128)) + pixels[1].g * (coeffs_y.y / float(128)) + pixels[2].g * (coeffs_y.z / float(128)) + pixels[3].g * (coeffs_y.w / float(128));
-    float b = pixels[0].b * (coeffs_x.x / float(128)) + pixels[1].b * (coeffs_x.y / float(128)) + pixels[2].b * (coeffs_x.z / float(128)) + pixels[3].b * (coeffs_x.w / float(128))
-            + pixels[0].b * (coeffs_y.x / float(128)) + pixels[1].b * (coeffs_y.y / float(128)) + pixels[2].b * (coeffs_y.z / float(128)) + pixels[3].b * (coeffs_y.w / float(128));
+    // Weigh the colours from each source pixel based on the coefficients for this phase to generate the result colour for this rendered pixel
+    float r = pixels[0].r * (coeffs.x / float(128)) + pixels[1].r * (coeffs.y / float(128)) + pixels[2].r * (coeffs.z / float(128)) + pixels[3].r * (coeffs.w / float(128));
+    float g = pixels[0].g * (coeffs.x / float(128)) + pixels[1].g * (coeffs.y / float(128)) + pixels[2].g * (coeffs.z / float(128)) + pixels[3].g * (coeffs.w / float(128));
+    float b = pixels[0].b * (coeffs.x / float(128)) + pixels[1].b * (coeffs.y / float(128)) + pixels[2].b * (coeffs.z / float(128)) + pixels[3].b * (coeffs.w / float(128));
 
+    // Clamp colours, maybe not required
+    if (r < 0) r = 0;
+    if (g < 0) g = 0;
+    if (b < 0) b = 0;
+    if (r > 1) r = 1;
+    if (g > 1) g = 1;
+    if (b > 1) b = 1;
+
+    // Return result colour for this pixel
     return float4(r, g, b, 1);
 }
 

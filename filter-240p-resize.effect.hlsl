@@ -12,15 +12,6 @@ uniform int target_height;
 uniform float4x4 ViewProj; // View-projection matrix used in the vertex shader
 uniform Texture2D image;   // Texture containing the source picture
 
-// Interpolation method and wrap mode for sampling a texture
-SamplerState point_clamp
-{
-    Filter    = Point;      // Anisotropy / Point / Linear
-    AddressU  = Clamp;      // Wrap / Clamp / Mirror / Border / MirrorOnce
-    AddressV  = Clamp;      // Wrap / Clamp / Mirror / Border / MirrorOnce
-    BorderColor = 00000000; // Used only with Border edges (optional)
-};
-
 // Data type of the input of the vertex shader
 struct vertex_data
 {
@@ -48,9 +39,9 @@ pixel_data vertex_shader_240p_resize(vertex_data vertex)
 // Get the coefficients for this mapped X or Y value
 int4 get_coeffs(float mapped)
 {
-    const int COEFFS_LENGTH = 64;
+    static const int COEFFS_LENGTH = 64;
     // Scaling coefficients from 'Interpolation (Sharp).txt' in https://github.com/MiSTer-devel/Filters_MiSTer
-    int4 coeffs[COEFFS_LENGTH] = {
+    static int4 coeffs[COEFFS_LENGTH] = {
         int4(0, 128,   0,   0),
         int4(0, 128,   0,   0),
         int4(0, 128,   0,   0),
@@ -125,28 +116,31 @@ int4 get_coeffs(float mapped)
 float4 pixel_shader_240p_resize(pixel_data pixel) : TARGET
 {
     // Scale of the output resolution relative to the input resolution
-    float scale_x = target_width / source_width;
-    float scale_y = target_height / source_height;
+    static float scale_x = target_width / float(source_width);
+    static float scale_y = target_height / float(source_height);
+
+    // Get the output pixel positions from the output UV positions
+    float2 pixel_uv = float2(pixel.uv.x * target_width, pixel.uv.y * target_height);
 
     // The output pixel position mapped onto the original source image based on the scale
-    float mapped_x = pixel.uv.x / scale_x;
-    float mapped_y = pixel.uv.y / scale_y;
+    float mapped_x = pixel_uv.x / scale_x;
+    float mapped_y = pixel_uv.y / scale_y;
 
     int4 coeffs_x = get_coeffs(mapped_x);
     int4 coeffs_y = get_coeffs(mapped_y);
 
     int taps_x[4] = {
-        int(mapped_x - 1.5),
-        int(mapped_x - 0.5),
-        int(mapped_x + 0.5),
-        int(mapped_x + 1.5)
+        mapped_x - 1.5,
+        mapped_x - 0.5,
+        mapped_x + 0.5,
+        mapped_x + 1.5
     };
 
     int taps_y[4] = {
-        int(mapped_y - 1.5),
-        int(mapped_y - 0.5),
-        int(mapped_y + 0.5),
-        int(mapped_y + 1.5)
+        mapped_y - 1.5,
+        mapped_y - 0.5,
+        mapped_y + 0.5,
+        mapped_y + 1.5
     };
 
     if (taps_x[0] < 0) taps_x[0] = 0;
@@ -160,15 +154,20 @@ float4 pixel_shader_240p_resize(pixel_data pixel) : TARGET
     if (taps_y[3] >= source_height) taps_y[3] = source_height - 1;
 
     float4 pixels[4] = {
-        image.Sample(point_clamp, float2(taps_x[0], taps_y[0])),
-        image.Sample(point_clamp, float2(taps_x[1], taps_y[1])),
-        image.Sample(point_clamp, float2(taps_x[2], taps_y[2])),
-        image.Sample(point_clamp, float2(taps_x[3], taps_y[3]))
+        image.Load(int3(taps_x[0], taps_y[0], 0)),
+        image.Load(int3(taps_x[1], taps_y[1], 0)),
+        image.Load(int3(taps_x[2], taps_y[2], 0)),
+        image.Load(int3(taps_x[3], taps_y[3], 0))
     };
 
-    float4 source_sample = image.Sample(point_clamp, pixel.uv);
-    float luminance = dot(source_sample.rgb, float3(0.299, 0.587, 0.114));
-    return float4(luminance.xxx, source_sample.a);
+    float r = pixels[0].r * (coeffs_x.x / float(128)) + pixels[1].r * (coeffs_x.y / float(128)) + pixels[2].r * (coeffs_x.z / float(128)) + pixels[3].r * (coeffs_x.w / float(128))
+            + pixels[0].r * (coeffs_y.x / float(128)) + pixels[1].r * (coeffs_y.y / float(128)) + pixels[2].r * (coeffs_y.z / float(128)) + pixels[3].r * (coeffs_y.w / float(128));
+    float g = pixels[0].g * (coeffs_x.x / float(128)) + pixels[1].g * (coeffs_x.y / float(128)) + pixels[2].g * (coeffs_x.z / float(128)) + pixels[3].g * (coeffs_x.w / float(128))
+            + pixels[0].g * (coeffs_y.x / float(128)) + pixels[1].g * (coeffs_y.y / float(128)) + pixels[2].g * (coeffs_y.z / float(128)) + pixels[3].g * (coeffs_y.w / float(128));
+    float b = pixels[0].b * (coeffs_x.x / float(128)) + pixels[1].b * (coeffs_x.y / float(128)) + pixels[2].b * (coeffs_x.z / float(128)) + pixels[3].b * (coeffs_x.w / float(128))
+            + pixels[0].b * (coeffs_y.x / float(128)) + pixels[1].b * (coeffs_y.y / float(128)) + pixels[2].b * (coeffs_y.z / float(128)) + pixels[3].b * (coeffs_y.w / float(128));
+
+    return float4(r, g, b, 1);
 }
 
 technique Draw

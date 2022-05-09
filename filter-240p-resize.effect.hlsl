@@ -115,20 +115,13 @@ int4 get_coeffs(float mapped)
 // Pixel shader used to compute an RGBA color at a given pixel position
 float4 pixel_shader_240p_resize(pixel_data pixel) : TARGET
 {
-    // Scale of the output resolution relative to the input resolution
-    static float scale_x = target_width / float(source_width);
-    static float scale_y = target_height / float(source_height);
-
     // Hacky way to determine which dimension we're scaling in, make this nicer later
     // Scale horizontally first, then vertically
     bool scale_vertical = target_width == source_width;
 
-    // Get the output pixel positions from the output UV positions
-    float2 pixel_uv = float2(pixel.uv.x * target_width, pixel.uv.y * target_height);
-
-    // The output pixel position mapped onto the original source image based on the scale
-    float mapped_x = pixel_uv.x / scale_x;
-    float mapped_y = pixel_uv.y / scale_y;
+    // The output UV position mapped onto the original source image, pixel.uv.x and pixel.uv.y are [0,1]
+    float mapped_x = pixel.uv.x * source_width;
+    float mapped_y = pixel.uv.y * source_height;
 
     // Get the mapped pixel to interpolate
     float to_scale = mapped_x;
@@ -174,9 +167,9 @@ float4 pixel_shader_240p_resize(pixel_data pixel) : TARGET
     }
 
     // Weigh the colours from each source pixel based on the coefficients for this phase to generate the result colour for this rendered pixel
-    float r = pixels[0].r * (coeffs.x / float(128)) + pixels[1].r * (coeffs.y / float(128)) + pixels[2].r * (coeffs.z / float(128)) + pixels[3].r * (coeffs.w / float(128));
-    float g = pixels[0].g * (coeffs.x / float(128)) + pixels[1].g * (coeffs.y / float(128)) + pixels[2].g * (coeffs.z / float(128)) + pixels[3].g * (coeffs.w / float(128));
-    float b = pixels[0].b * (coeffs.x / float(128)) + pixels[1].b * (coeffs.y / float(128)) + pixels[2].b * (coeffs.z / float(128)) + pixels[3].b * (coeffs.w / float(128));
+    float r = pixels[0].r * coeffs.x / 128 + pixels[1].r * coeffs.y / 128 + pixels[2].r * coeffs.z / 128 + pixels[3].r * coeffs.w / 128;
+    float g = pixels[0].g * coeffs.x / 128 + pixels[1].g * coeffs.y / 128 + pixels[2].g * coeffs.z / 128 + pixels[3].g * coeffs.w / 128;
+    float b = pixels[0].b * coeffs.x / 128 + pixels[1].b * coeffs.y / 128 + pixels[2].b * coeffs.z / 128 + pixels[3].b * coeffs.w / 128;
 
     // Clamp colours, maybe not required
     if (r < 0) r = 0;

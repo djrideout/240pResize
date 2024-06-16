@@ -41,7 +41,7 @@ int4 get_coeffs(float mapped)
 {
     static const int COEFFS_LENGTH = 64;
     // Scaling coefficients from 'Interpolation (Sharp).txt' in https://github.com/MiSTer-devel/Filters_MiSTer
-    static int4 coeffs[COEFFS_LENGTH] = {
+    static const int4 coeffs[COEFFS_LENGTH] = {
         int4(0, 128,   0,   0),
         int4(0, 128,   0,   0),
         int4(0, 128,   0,   0),
